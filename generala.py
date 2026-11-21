@@ -1,23 +1,20 @@
 
 import random
-import csv
+import pandas as pd
 from collections import Counter
 
 # ==========================================
-# 1. CONFIGURACION DEL EXPERIMENTO
+# PROYECTO: GENERALA TRADICIONAL
+# Comparación de estrategias
 # ==========================================
 
+SEMILLA = 20261121
 NUM_ENFRENTAMIENTOS = 500
-NUM_DADOS = 5
-MAX_LANZAMIENTOS = 3
 
-# Semilla para poder repetir el experimento
-random.seed(20261121)
-
-ESTRATEGIAS = ["Probabilistica", "Aleatoria"]
+rng = random.Random(SEMILLA)
 
 CATEGORIAS = [
-    "1", "2", "3", "4", "5", "6",
+    1, 2, 3, 4, 5, 6,
     "Escalera_corta",
     "Escalera_larga",
     "Full",
@@ -25,231 +22,158 @@ CATEGORIAS = [
     "Generala"
 ]
 
-# ==========================================
-# 2. LANZAMIENTO DE DADOS
-# ==========================================
+PUNTOS_ESPECIALES = {
+    "Escalera_corta": 20,
+    "Escalera_larga": 30,
+    "Full": 30,
+    "Poker": 45,
+    "Generala": 50
+}
+
 
 def lanzar_dados(cantidad):
-    return [random.randint(1, 6) for _ in range(cantidad)]
+    return [rng.randint(1, 6) for _ in range(cantidad)]
 
 
-# ==========================================
-# 3. IDENTIFICAR COMBINACIONES
-# ==========================================
-
-def combinaciones(dados):
-
+def evaluar_combinaciones(dados):
     valores = set(dados)
     frecuencias = Counter(dados)
 
     escalera_corta = any(
-        set(secuencia).issubset(valores)
-        for secuencia in [
-            [1, 2, 3, 4],
-            [2, 3, 4, 5],
-            [3, 4, 5, 6]
-        ]
+        set(range(inicio, inicio + 4)).issubset(valores)
+        for inicio in range(1, 4)
     )
 
     escalera_larga = (
-        {1, 2, 3, 4, 5}.issubset(valores)
-        or {2, 3, 4, 5, 6}.issubset(valores)
+        len(valores) == 5 and
+        valores in (
+            {1, 2, 3, 4, 5},
+            {2, 3, 4, 5, 6}
+        )
     )
-
-    full = sorted(frecuencias.values()) == [2, 3]
-
-    poker = 4 in frecuencias.values()
-
-    generala = 5 in frecuencias.values()
 
     return {
         "Escalera_corta": escalera_corta,
         "Escalera_larga": escalera_larga,
-        "Full": full,
-        "Poker": poker,
-        "Generala": generala
+        "Full": sorted(frecuencias.values()) == [2, 3],
+        "Poker": max(frecuencias.values()) >= 4,
+        "Generala": max(frecuencias.values()) == 5
     }
 
 
-# ==========================================
-# 4. ESTRATEGIA ALEATORIA
-# ==========================================
+def elegir_dados(dados, categoria, estrategia):
 
-def conservar_aleatorio(dados):
+    if estrategia == "Aleatoria":
+        cantidad = rng.randint(0, len(dados))
+        return set(rng.sample(range(len(dados)), cantidad))
 
-    cantidad = random.randint(0, len(dados))
-
-    posiciones = random.sample(
-        range(len(dados)),
-        cantidad
-    )
-
-    return posiciones
-
-
-# ==========================================
-# 5. ESTRATEGIA PROBABILISTICA
-# ==========================================
-
-def conservar_probabilistico(dados, categoria):
+    if isinstance(categoria, int):
+        return {
+            i for i, dado in enumerate(dados)
+            if dado == categoria
+        }
 
     frecuencias = Counter(dados)
 
-    # Para las categorias numericas:
-    # conserva los dados que tienen el numero buscado.
-
-    if categoria in ["1", "2", "3", "4", "5", "6"]:
-
-        numero = int(categoria)
-
-        return [
-            i for i, dado in enumerate(dados)
-            if dado == numero
-        ]
-
-    # Para poker y generala:
-    # conserva los dados del numero mas repetido.
-
-    if categoria in ["Poker", "Generala"]:
-
-        objetivo = max(
-            frecuencias,
-            key=frecuencias.get
-        )
-
-        return [
-            i for i, dado in enumerate(dados)
-            if dado == objetivo
-        ]
-
-    # Para escalera corta o larga:
-    # conserva los valores que pertenecen
-    # a la mejor secuencia disponible.
-
-    if categoria in ["Escalera_corta", "Escalera_larga"]:
-
-        if categoria == "Escalera_corta":
+    if categoria in ("Escalera_larga", "Escalera_corta"):
+        if categoria == "Escalera_larga":
             secuencias = [
-                [1, 2, 3, 4],
-                [2, 3, 4, 5],
-                [3, 4, 5, 6]
+                {1, 2, 3, 4, 5},
+                {2, 3, 4, 5, 6}
             ]
         else:
             secuencias = [
-                [1, 2, 3, 4, 5],
-                [2, 3, 4, 5, 6]
+                {1, 2, 3, 4},
+                {2, 3, 4, 5},
+                {3, 4, 5, 6}
             ]
 
         mejor = max(
             secuencias,
-            key=lambda secuencia: sum(
-                1 for numero in secuencia
-                if numero in dados
-            )
+            key=lambda s: sum(d in s for d in dados)
         )
 
-        posiciones = []
-        utilizados = set()
-
-        for i, dado in enumerate(dados):
-            if dado in mejor and dado not in utilizados:
-                posiciones.append(i)
-                utilizados.add(dado)
-
-        return posiciones
-
-    # Para Full:
-    # intenta conservar tres dados de un valor
-    # y dos de otro valor.
+        return {
+            i for i, d in enumerate(dados)
+            if d in mejor
+        }
 
     if categoria == "Full":
-
-        valores = sorted(
-            frecuencias,
-            key=lambda x: frecuencias[x],
+        grupos = sorted(
+            frecuencias.items(),
+            key=lambda x: x[1],
             reverse=True
         )
 
-        if len(valores) >= 2:
+        valores_a_conservar = {grupos[0][0]}
 
-            principal = valores[0]
-            secundario = valores[1]
+        if len(grupos) >= 2 and grupos[0][1] == 3:
+            if grupos[1][1] == 2:
+                valores_a_conservar.add(grupos[1][0])
 
-            posiciones = []
+        return {
+            i for i, d in enumerate(dados)
+            if d in valores_a_conservar
+        }
 
-            for i, dado in enumerate(dados):
-                if dado == principal and posiciones.count(i) < 3:
-                    if sum(
-                        1 for p in posiciones
-                        if dados[p] == principal
-                    ) < 3:
-                        posiciones.append(i)
+    valor = max(frecuencias, key=frecuencias.get)
 
-                elif dado == secundario:
-                    if sum(
-                        1 for p in posiciones
-                        if dados[p] == secundario
-                    ) < 2:
-                        posiciones.append(i)
-
-            return posiciones
-
-        # Si todos son iguales, conserva tres.
-        return [0, 1, 2]
-
-    return []
+    return {
+        i for i, d in enumerate(dados)
+        if d == valor
+    }
 
 
-# ==========================================
-# 6. CALCULAR LOS PUNTOS DE CADA CATEGORIA
-# ==========================================
+def jugar_turno(categoria, estrategia):
+
+    dados = lanzar_dados(5)
+
+    primera_suma = sum(dados)
+
+    combinaciones_iniciales = evaluar_combinaciones(dados)
+    jugadas_servidas = sum(combinaciones_iniciales.values())
+
+    for _ in range(2):
+        conservar = elegir_dados(
+            dados,
+            categoria,
+            estrategia
+        )
+
+        nuevos = lanzar_dados(5 - len(conservar))
+
+        dados = [
+            dado for i, dado in enumerate(dados)
+            if i in conservar
+        ] + nuevos
+
+    return dados, primera_suma, jugadas_servidas
+
 
 def calcular_puntos(dados, categoria):
 
-    frecuencia = Counter(dados)
-
-    if categoria in ["1", "2", "3", "4", "5", "6"]:
-
-        numero = int(categoria)
-
+    if isinstance(categoria, int):
         return sum(
             dado for dado in dados
-            if dado == numero
+            if dado == categoria
         )
 
-    resultados = combinaciones(dados)
+    combinaciones = evaluar_combinaciones(dados)
 
-    if categoria == "Escalera_corta":
-        return 20 if resultados[categoria] else 0
-
-    if categoria == "Escalera_larga":
-        return 30 if resultados[categoria] else 0
-
-    if categoria == "Full":
-        return 30 if resultados[categoria] else 0
-
-    if categoria == "Poker":
-        return 45 if resultados[categoria] else 0
-
-    if categoria == "Generala":
-        return 50 if resultados[categoria] else 0
+    if combinaciones[categoria]:
+        return PUNTOS_ESPECIALES[categoria]
 
     return 0
 
 
-# ==========================================
-# 7. JUGAR UNA PARTIDA
-# ==========================================
-
 def jugar_partida(estrategia):
 
-    puntaje_total = 0
+    puntos = 0
     suma_superior = 0
-
-    primera_suma_dados = None
     jugadas_servidas = 0
+    primera_suma_dados = None
 
-    combinaciones_obtenidas = {
+    indicadores = {
         "Escalera_corta": 0,
         "Escalera_larga": 0,
         "Full": 0,
@@ -257,159 +181,85 @@ def jugar_partida(estrategia):
         "Generala": 0
     }
 
-    # Se juegan las 11 categorias.
+    for numero_turno, categoria in enumerate(CATEGORIAS):
 
-    for turno, categoria in enumerate(CATEGORIAS):
+        dados, primera_suma, servidas = jugar_turno(
+            categoria,
+            estrategia
+        )
 
-        dados = lanzar_dados(NUM_DADOS)
+        if numero_turno == 0:
+            primera_suma_dados = primera_suma
 
-        # Registrar la suma del primer lanzamiento
-        # del primer turno.
+        jugadas_servidas += servidas
 
-        if turno == 0:
-            primera_suma_dados = sum(dados)
+        puntos_turno = calcular_puntos(
+            dados,
+            categoria
+        )
 
-        # Registrar combinaciones conseguidas
-        # directamente en el primer lanzamiento
-        # de cada turno.
+        puntos += puntos_turno
 
-        if turno == 0 or True:
-
-            resultado_inicial = combinaciones(dados)
-
-            jugadas_servidas += sum(
-                resultado_inicial.values()
+        if isinstance(categoria, int):
+            suma_superior += puntos_turno
+        else:
+            indicadores[categoria] = int(
+                evaluar_combinaciones(dados)[categoria]
             )
-
-        # Se permiten hasta tres lanzamientos.
-
-        for lanzamiento in range(1, MAX_LANZAMIENTOS):
-
-            if estrategia == "Aleatoria":
-
-                posiciones = conservar_aleatorio(dados)
-
-            else:
-
-                posiciones = conservar_probabilistico(
-                    dados,
-                    categoria
-                )
-
-            dados_conservados = [
-                dados[i] for i in posiciones
-            ]
-
-            cantidad_nuevos = (
-                NUM_DADOS - len(dados_conservados)
-            )
-
-            nuevos_dados = lanzar_dados(cantidad_nuevos)
-
-            dados = dados_conservados + nuevos_dados
-
-        # Calcular los puntos de la categoria.
-
-        puntos = calcular_puntos(dados, categoria)
-
-        puntaje_total += puntos
-
-        if categoria in ["1", "2", "3", "4", "5", "6"]:
-            suma_superior += puntos
-
-        # Registrar si se obtuvo la combinacion
-        # correspondiente al turno.
-
-        if categoria in combinaciones_obtenidas:
-            if puntos > 0:
-                combinaciones_obtenidas[categoria] = 1
-
-    # Bono de 35 puntos si la suma superior
-    # alcanza al menos 63 puntos.
 
     bonificacion = 35 if suma_superior >= 63 else 0
-
-    puntaje_total += bonificacion
+    puntos += bonificacion
 
     return {
         "Estrategia": estrategia,
-        "Puntos_acumulados": puntaje_total,
+        "Puntos_acumulados": puntos,
         "Primera_suma_dados": primera_suma_dados,
         "Jugadas_servidas": jugadas_servidas,
-        "Escalera_corta": combinaciones_obtenidas["Escalera_corta"],
-        "Escalera_larga": combinaciones_obtenidas["Escalera_larga"],
-        "Full": combinaciones_obtenidas["Full"],
-        "Poker": combinaciones_obtenidas["Poker"],
-        "Generala": combinaciones_obtenidas["Generala"],
-        "Bonificacion_obtenida": bonificacion
+        "Escalera_corta": indicadores["Escalera_corta"],
+        "Escalera_larga": indicadores["Escalera_larga"],
+        "Full": indicadores["Full"],
+        "Poker": indicadores["Poker"],
+        "Generala": indicadores["Generala"],
+        "Bonificacion_obtenida": bonificacion,
+        "Experiencia": "NA"
     }
 
 
 # ==========================================
-# 8. SIMULAR LOS ENFRENTAMIENTOS
+# RECOLECCIÓN DE DATOS
 # ==========================================
 
-datos = []
+registros = []
 
 for enfrentamiento in range(1, NUM_ENFRENTAMIENTOS + 1):
 
-    # Cada enfrentamiento tiene un jugador
-    # probabilistico y uno aleatorio.
+    probabilistica = jugar_partida("Probabilistica")
+    aleatoria = jugar_partida("Aleatoria")
 
-    jugador_probabilistico = jugar_partida(
-        "Probabilistica"
-    )
+    puntos_prob = probabilistica["Puntos_acumulados"]
+    puntos_azar = aleatoria["Puntos_acumulados"]
 
-    jugador_aleatorio = jugar_partida(
-        "Aleatoria"
-    )
-
-    puntaje_probabilistico = (
-        jugador_probabilistico["Puntos_acumulados"]
-    )
-
-    puntaje_aleatorio = (
-        jugador_aleatorio["Puntos_acumulados"]
-    )
-
-    # Determinar el ganador.
-
-    if puntaje_probabilistico > puntaje_aleatorio:
-
-        resultado_probabilistico = 1
-        resultado_aleatorio = 0
-
-    elif puntaje_aleatorio > puntaje_probabilistico:
-
-        resultado_probabilistico = 0
-        resultado_aleatorio = 1
-
+    if puntos_prob > puntos_azar:
+        resultado_prob, resultado_azar = 1, 0
+    elif puntos_azar > puntos_prob:
+        resultado_prob, resultado_azar = 0, 1
     else:
+        resultado_prob, resultado_azar = None, None
 
-        # Empate: se deja vacío para representar NA.
+    probabilistica["ID_enfrentamiento"] = enfrentamiento
+    aleatoria["ID_enfrentamiento"] = enfrentamiento
 
-        resultado_probabilistico = ""
-        resultado_aleatorio = ""
+    probabilistica["Resultado_partida"] = resultado_prob
+    aleatoria["Resultado_partida"] = resultado_azar
 
-    # Guardar los resultados de ambos jugadores.
-
-    for jugador, resultado in [
-        (jugador_probabilistico, resultado_probabilistico),
-        (jugador_aleatorio, resultado_aleatorio)
-    ]:
-
-        fila = {
-            "ID_enfrentamiento": enfrentamiento,
-            **jugador,
-            "Resultado_partida": resultado
-        }
-
-        datos.append(fila)
+    registros.extend([probabilistica, aleatoria])
 
 
 # ==========================================
-# 9. EXPORTAR LOS DATOS A CSV
+# CREACIÓN DE ARCHIVOS
 # ==========================================
+
+df = pd.DataFrame(registros)
 
 columnas = [
     "ID_enfrentamiento",
@@ -423,56 +273,36 @@ columnas = [
     "Poker",
     "Generala",
     "Bonificacion_obtenida",
-    "Resultado_partida"
+    "Resultado_partida",
+    "Experiencia"
 ]
 
-with open(
-    "resultados_generala.csv",
-    "w",
-    newline="",
+df = df[columnas]
+
+resumen = df.groupby("Estrategia").agg(
+    Partidas=("ID_enfrentamiento", "count"),
+    Promedio_puntos=("Puntos_acumulados", "mean"),
+    Mediana_puntos=("Puntos_acumulados", "median"),
+    Desviacion_estandar=("Puntos_acumulados", "std"),
+    Promedio_jugadas_servidas=("Jugadas_servidas", "mean"),
+    Victorias=("Resultado_partida", "sum")
+).reset_index()
+
+resumen["Porcentaje_victorias"] = (
+    resumen["Victorias"] / NUM_ENFRENTAMIENTOS
+) * 100
+
+df.to_csv(
+    "Resultados_Generala.csv",
+    index=False,
     encoding="utf-8-sig"
-) as archivo:
-
-    escritor = csv.DictWriter(
-        archivo,
-        fieldnames=columnas
-    )
-
-    escritor.writeheader()
-    escritor.writerows(datos)
-
-
-# ==========================================
-# 10. RESUMEN DEL EXPERIMENTO
-# ==========================================
-
-print("SIMULACION FINALIZADA")
-print("------------------------------")
-
-print("Enfrentamientos:", NUM_ENFRENTAMIENTOS)
-print("Observaciones:", len(datos))
-
-victorias_probabilisticas = sum(
-    1 for fila in datos
-    if fila["Estrategia"] == "Probabilistica"
-    and fila["Resultado_partida"] == 1
 )
 
-victorias_aleatorias = sum(
-    1 for fila in datos
-    if fila["Estrategia"] == "Aleatoria"
-    and fila["Resultado_partida"] == 1
-)
+with pd.ExcelWriter("Resultados_Generala.xlsx") as writer:
+    df.to_excel(writer, sheet_name="Datos", index=False)
+    resumen.to_excel(writer, sheet_name="Resumen", index=False)
 
-empates = sum(
-    1 for fila in datos
-    if fila["Resultado_partida"] == ""
-) // 2
-
-print("Victorias probabilisticas:", victorias_probabilisticas)
-print("Victorias aleatorias:", victorias_aleatorias)
-print("Empates:", empates)
-
-print("------------------------------")
-print("Archivo creado: resultados_generala.csv")
-
+print("SIMULACIÓN FINALIZADA")
+print("Registros generados:", len(df))
+print("\nRESUMEN:")
+print(resumen.to_string(index=False))
